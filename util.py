@@ -140,3 +140,14 @@ def sep_data(graph_list, fold_idx, seed=0):
     train_graph_list = [graph_list[i] for i in train_idx]
     test_graph_list = [graph_list[i] for i in test_idx]
     return train_graph_list, test_graph_list
+
+def sep_tg_data(dataset, fold_idx, seed=0):
+    skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=seed)
+    labels = [data.y.item() for data in dataset]
+    idx_list = []
+    for idx in skf.split(np.zeros(len(labels)), labels):
+        idx_list.append(idx)
+    train_idx, test_idx = idx_list[fold_idx]
+    train_dataset = [dataset[i.item()] for i in train_idx]
+    test_dataset = [dataset[i.item()] for i in test_idx]
+    return train_dataset, test_dataset
