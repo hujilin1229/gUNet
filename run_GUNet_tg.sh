@@ -80,7 +80,7 @@ if [ ${fold} == 0 ]; then
   start=`date +%s`
   for i in $(seq 1 10)
   do
-    CUDA_VISIBLE_DEVICES=${GPU} python3 main.py \
+    CUDA_VISIBLE_DEVICES=${GPU} python3 main_tg.py \
         -seed 1 \
         -data $DATA \
         -fold $i \

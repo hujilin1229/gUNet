@@ -13,11 +13,11 @@ def normalize_adj(adj):
     d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
     d_mat_inv_sqrt = sp.diags(d_inv_sqrt)
     adj = adj.dot(d_mat_inv_sqrt).transpose().dot(d_mat_inv_sqrt).tocoo()
-    return torch.FloatTensor(adj.todense()).cuda()
+    return torch.FloatTensor(adj.todense())
     # indices = torch.LongTensor(np.vstack((adj.row, adj.col)))
     # values = torch.FloatTensor(adj.data)
     # shape = torch.Size(adj.shape)
-    # return torch.sparse.FloatTensor(indices, values, shape).cuda()
+    # return torch.sparse.FloatTensor(indices, values, shape)
 
 
 def normalize_adj_torch(mx):
@@ -81,7 +81,7 @@ class GraphUnpool(nn.Module):
         super(GraphUnpool, self).__init__()
 
     def forward(self, A, X, idx):
-        new_X = torch.zeros([A.shape[0], X.shape[1]]).cuda()
+        new_X = torch.zeros([A.shape[0], X.shape[1]])
         new_X[idx] = X
         return A, new_X
 
@@ -91,7 +91,7 @@ class GraphPool(nn.Module):
     def __init__(self, k, in_dim):
         super(GraphPool, self).__init__()
         self.k = k
-        self.proj = nn.Linear(in_dim, 1).cuda()
+        self.proj = nn.Linear(in_dim, 1)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, A, X):
@@ -113,7 +113,7 @@ class GCN(nn.Module):
 
     def __init__(self, in_dim, out_dim):
         super(GCN, self).__init__()
-        self.proj = nn.Linear(in_dim, out_dim).cuda()
+        self.proj = nn.Linear(in_dim, out_dim)
         self.drop = nn.Dropout(p=0.3)
 
     def forward(self, A, X):

@@ -46,7 +46,7 @@ class GUNet(nn.Module):
         ks = [0.9, 0.7, 0.6, 0.5]
         output_channels_gUnet = sum(latent_dim)
         self.gUnet = GraphUNet(num_node_feats, hidden_channels=48, out_channels=output_channels_gUnet,
-                               depth=len(ks), pool_ratios=ks).cuda()
+                               depth=len(ks), pool_ratios=ks)
 
     def forward(self, data):
         h = self.sortpooling_embedding_tg(data)

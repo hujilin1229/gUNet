@@ -42,6 +42,9 @@ class Classifier(nn.Module):
     def forward(self, data):
         # node_feat, labels = self.PrepareFeatureLabel(batch_graph)
         labels = data.y
+        # print("Current Node Feature shape is ", data.x.shape)
+        # print(data.x)
+
         embed = self.s2v(data)
         return self.mlp(embed, labels)
 

@@ -47,8 +47,8 @@ class GUNet(nn.Module):
             self.out_params = nn.Linear(self.dense_dim, output_dim)
         # ks = [4000, 3000, 2000, 1000]
         ks = [0.9, 0.7, 0.6, 0.5]
-        self.gUnet = ops.GraphUnet(ks, num_node_feats, 97).cuda()
-        # self.gUnet = GraphUNet(num_node_feats, hidden_channels=48, out_channels=97, depth=len(ks), pool_ratios=ks).cuda()
+        self.gUnet = ops.GraphUnet(ks, num_node_feats, 97)
+        # self.gUnet = GraphUNet(num_node_feats, hidden_channels=48, out_channels=97, depth=len(ks), pool_ratios=ks)
 
         weights_init(self)
 
@@ -60,11 +60,11 @@ class GUNet(nn.Module):
 
         n2n_sp, e2n_sp, subg_sp = S2VLIB.PrepareMeanField(graph_list)
 
-        if isinstance(node_feat, torch.cuda.FloatTensor):
-            n2n_sp = n2n_sp.cuda()
-            e2n_sp = e2n_sp.cuda()
-            subg_sp = subg_sp.cuda()
-            node_degs = node_degs.cuda()
+        # if isinstance(node_feat, torch.cuda.FloatTensor):
+        #     n2n_sp = n2n_sp
+        #     e2n_sp = e2n_sp
+        #     subg_sp = subg_sp
+        #     node_degs = node_degs
         node_feat = Variable(node_feat)
         if edge_feat is not None:
             edge_feat = Variable(edge_feat)
@@ -111,8 +111,8 @@ class GUNet(nn.Module):
         sort_channel = cur_message_layer[:, -1]
         batch_sortpooling_graphs = torch.zeros(
             len(graph_sizes), self.k, self.total_latent_dim)
-        if isinstance(node_feat.data, torch.cuda.FloatTensor):
-            batch_sortpooling_graphs = batch_sortpooling_graphs.cuda()
+        # if isinstance(node_feat.data, torch.cuda.FloatTensor):
+        #     batch_sortpooling_graphs = batch_sortpooling_graphs
 
         batch_sortpooling_graphs = Variable(batch_sortpooling_graphs)
         accum_count = 0
@@ -124,8 +124,8 @@ class GUNet(nn.Module):
             sortpooling_graph = cur_message_layer.index_select(0, topk_indices)
             if k < self.k:
                 to_pad = torch.zeros(self.k-k, self.total_latent_dim)
-                if isinstance(node_feat.data, torch.cuda.FloatTensor):
-                    to_pad = to_pad.cuda()
+                # if isinstance(node_feat.data, torch.cuda.FloatTensor):
+                #     to_pad = to_pad
 
                 to_pad = Variable(to_pad)
                 sortpooling_graph = torch.cat((sortpooling_graph, to_pad), 0)

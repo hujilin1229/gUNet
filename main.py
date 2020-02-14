@@ -65,6 +65,7 @@ class Classifier(nn.Module):
         if node_tag_flag:
             concat_tag = torch.LongTensor(concat_tag).view(-1, 1)
             node_tag = torch.zeros(n_nodes, cmd_args.feat_dim)
+            # scatter_(dim, index, src) → Tensor
             node_tag.scatter_(1, concat_tag, 1)
 
         if node_feat_flag:
@@ -82,13 +83,15 @@ class Classifier(nn.Module):
             node_feat = torch.ones(n_nodes, 1)
 
         if cmd_args.mode == 'gpu':
-            node_feat = node_feat.cuda()
-            labels = labels.cuda()
+            node_feat = node_feat
+            labels = labels
 
         return node_feat, labels
 
     def forward(self, batch_graph):
         node_feat, labels = self.PrepareFeatureLabel(batch_graph)
+        # print("Current Node Feature shape is ", node_feat.shape)
+        # print(node_feat)
         embed = self.s2v(batch_graph, node_feat, None)
 
         return self.mlp(embed, labels)
@@ -163,7 +166,7 @@ if __name__ == '__main__':
 
     classifier = Classifier()
     if cmd_args.mode == 'gpu':
-        classifier = classifier.cuda()
+        classifier = classifier
 
     optimizer = optim.Adam(
         classifier.parameters(), lr=cmd_args.learning_rate, amsgrad=True,
