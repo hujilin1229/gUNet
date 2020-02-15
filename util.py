@@ -111,9 +111,9 @@ def load_data():
     for g in g_list:
         g.label = label_dict[g.label]
     cmd_args.num_class = len(label_dict)
-    cmd_args.feat_dim = len(feat_dict) # maximum node label (tag)
+    cmd_args.feat_dim = len(feat_dict)  # maximum node label (tag)
     if node_feature_flag == True:
-        cmd_args.attr_dim = node_features.shape[1] # dim of node features (attributes)
+        cmd_args.attr_dim = node_features.shape[1]  # dim of node features (attributes)
     else:
         cmd_args.attr_dim = 0
 

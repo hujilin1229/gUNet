@@ -23,15 +23,22 @@ class Classifier(nn.Module):
         super(Classifier, self).__init__()
         model = GUNet
 
+        print("latent dim is ", cmd_args.latent_dim)
+
         self.s2v = model(
             latent_dim=cmd_args.latent_dim,
             output_dim=cmd_args.out_dim,
             num_node_feats=cmd_args.feat_dim+cmd_args.attr_dim,
             num_edge_feats=0,
             k=cmd_args.sortpooling_k)
+
+        print("num_node_feats: ", cmd_args.feat_dim+cmd_args.attr_dim)
         out_dim = cmd_args.out_dim
         if out_dim == 0:
             out_dim = self.s2v.dense_dim
+
+        # print("out dim is ", out_dim)
+
         self.mlp = MLPClassifier(
             input_size=out_dim, hidden_size=cmd_args.hidden,
             num_class=cmd_args.num_class, with_dropout=cmd_args.dropout)
@@ -155,6 +162,7 @@ if __name__ == '__main__':
 
     train_graphs, test_graphs = load_data()
     print('# train: %d, # test: %d' % (len(train_graphs), len(test_graphs)))
+    # print(cmd_args.num_class)
 
     if cmd_args.sortpooling_k <= 1:
         num_nodes_list = sorted([

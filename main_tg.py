@@ -25,6 +25,9 @@ class Classifier(nn.Module):
     def __init__(self):
         super(Classifier, self).__init__()
         model = GUNet
+
+        # print("latent dim is ", cmd_args.latent_dim)
+
         self.s2v = model(
             latent_dim=cmd_args.latent_dim,
             output_dim=cmd_args.out_dim,
@@ -32,9 +35,12 @@ class Classifier(nn.Module):
             num_edge_feats=0,
             k=cmd_args.sortpooling_k)
 
+        # print("num_node_feats: ", cmd_args.feat_dim)
         out_dim = cmd_args.out_dim
         if out_dim == 0:
             out_dim = self.s2v.dense_dim
+
+        # print("out dim is ", out_dim)
         self.mlp = MLPClassifier(
             input_size=out_dim, hidden_size=cmd_args.hidden,
             num_class=cmd_args.num_class, with_dropout=cmd_args.dropout)
@@ -108,7 +114,7 @@ if __name__ == '__main__':
 
     path = osp.join(osp.dirname(osp.realpath(__file__)), '.', 'data', cmd_args.data)
     dataset = TUDataset(path, name=cmd_args.data)
-    dataset = dataset.shuffle()
+    # dataset = dataset.shuffle()
 
     if cmd_args.sortpooling_k <= 1:
         num_nodes_list = sorted([

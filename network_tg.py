@@ -54,7 +54,10 @@ class GUNet(nn.Module):
         return h
 
     def sortpooling_embedding_tg(self, data):
-        ''' if exists edge feature, concatenate to node feature vector '''
+        '''
+        if exists edge feature, concatenate to node feature vector
+        '''
+
         node_feat, edge_index, batch = data.x, data.edge_index, data.batch
         # TODO: remove edge_attr consideration
         # if data.edge_attr is not None:
@@ -71,6 +74,7 @@ class GUNet(nn.Module):
 
         ''' traditional 1d convlution and dense layers '''
         to_conv1d = batch_sortpooling_graphs.view((-1, 1, self.k * self.total_latent_dim))
+
         conv1d_res = self.conv1d_params1(to_conv1d)
         conv1d_res = F.relu(conv1d_res)
         conv1d_res = self.maxpool1d(conv1d_res)
