@@ -138,7 +138,7 @@ if __name__ == '__main__':
 
     path = osp.join(osp.dirname(osp.realpath(__file__)), '.', 'data', cmd_args.data)
     dataset = TUDataset(path, name=cmd_args.data)
-    dataset = dataset.shuffle()
+    # dataset = dataset.shuffle()
 
     if cmd_args.sortpooling_k <= 1:
         num_nodes_list = sorted([
