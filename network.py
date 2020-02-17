@@ -11,8 +11,6 @@ sys.path.append('%s/pytorch_structure2vec-master/s2v_lib' % os.path.dirname(
 from s2v_lib import S2VLIB # noqa
 from pytorch_util import weights_init, gnn_spmm # noqa
 
-from torch_geometric.nn.models import GraphUNet
-
 class GUNet(nn.Module):
     def __init__(self, output_dim, num_node_feats, num_edge_feats,
                  latent_dim=[32, 32, 32, 1], k=30, conv1d_channels=[16, 32],
@@ -53,6 +51,10 @@ class GUNet(nn.Module):
         weights_init(self)
 
     def forward(self, graph_list, node_feat, edge_feat):
+
+        # device = node_feat.get_device()
+        device = torch.device(node_feat.device)
+
         graph_sizes = [graph_list[i].num_nodes for i in range(len(graph_list))]
         node_degs = [torch.Tensor(graph_list[i].degs) + 1
                      for i in range(len(graph_list))]
@@ -61,10 +63,11 @@ class GUNet(nn.Module):
         n2n_sp, e2n_sp, subg_sp = S2VLIB.PrepareMeanField(graph_list)
 
         # if isinstance(node_feat, torch.cuda.FloatTensor):
-        #     n2n_sp = n2n_sp
-        #     e2n_sp = e2n_sp
-        #     subg_sp = subg_sp
-        #     node_degs = node_degs
+        n2n_sp = n2n_sp.to(device)
+        e2n_sp = e2n_sp.to(device)
+        subg_sp = subg_sp.to(device)
+        node_degs = node_degs.to(device)
+
         node_feat = Variable(node_feat)
         if edge_feat is not None:
             edge_feat = Variable(edge_feat)
@@ -80,6 +83,9 @@ class GUNet(nn.Module):
 
     def sortpooling_embedding(self, node_feat, edge_feat, n2n_sp, e2n_sp,
                               subg_sp, graph_sizes, node_degs):
+
+        device = torch.device(node_feat.device)
+
         ''' if exists edge feature, concatenate to node feature vector '''
         if edge_feat is not None:
             input_edge_linear = self.w_e2l(edge_feat)
@@ -87,7 +93,7 @@ class GUNet(nn.Module):
             node_feat = torch.cat([node_feat, e2npool_input], 1)
 
         ''' graph convolution layers '''
-        A = ops.normalize_adj(n2n_sp)
+        A = ops.normalize_adj(n2n_sp).to(device)
 
         ver = 2
 
@@ -110,9 +116,7 @@ class GUNet(nn.Module):
         ''' sortpooling layer '''
         sort_channel = cur_message_layer[:, -1]
         batch_sortpooling_graphs = torch.zeros(
-            len(graph_sizes), self.k, self.total_latent_dim)
-        # if isinstance(node_feat.data, torch.cuda.FloatTensor):
-        #     batch_sortpooling_graphs = batch_sortpooling_graphs
+            len(graph_sizes), self.k, self.total_latent_dim).to(device)
 
         batch_sortpooling_graphs = Variable(batch_sortpooling_graphs)
         accum_count = 0
@@ -123,9 +127,7 @@ class GUNet(nn.Module):
             topk_indices += accum_count
             sortpooling_graph = cur_message_layer.index_select(0, topk_indices)
             if k < self.k:
-                to_pad = torch.zeros(self.k-k, self.total_latent_dim)
-                # if isinstance(node_feat.data, torch.cuda.FloatTensor):
-                #     to_pad = to_pad
+                to_pad = torch.zeros(self.k-k, self.total_latent_dim).to(device)
 
                 to_pad = Variable(to_pad)
                 sortpooling_graph = torch.cat((sortpooling_graph, to_pad), 0)

@@ -11,7 +11,7 @@ from network import GUNet
 from mlp_dropout import MLPClassifier
 from sklearn import metrics
 from util import cmd_args, load_data
-
+from torchsummary import summary
 
 sys.path.append(
     '%s/pytorch_structure2vec-master/s2v_lib' % os.path.dirname(
@@ -89,28 +89,31 @@ class Classifier(nn.Module):
         else:
             node_feat = torch.ones(n_nodes, 1)
 
-        if cmd_args.mode == 'gpu':
-            node_feat = node_feat
-            labels = labels
+        node_feat = node_feat.to(device)
+        labels = labels.to(device)
 
         return node_feat, labels
 
-    def forward(self, batch_graph):
+    def forward(self, batch_graph, device=torch.device('cpu')):
         node_feat, labels = self.PrepareFeatureLabel(batch_graph)
+        node_feat = node_feat.to(device)
+        labels = labels.to(device)
         # print("Current Node Feature shape is ", node_feat.shape)
         # print(node_feat)
         embed = self.s2v(batch_graph, node_feat, None)
 
         return self.mlp(embed, labels)
 
-    def output_features(self, batch_graph):
+    def output_features(self, batch_graph, device=torch.device('cpu')):
         node_feat, labels = self.PrepareFeatureLabel(batch_graph)
+        node_feat = node_feat.to(device)
+        labels = labels.to(device)
         embed = self.s2v(batch_graph, node_feat, None)
         return embed, labels
 
 
 def loop_dataset(g_list, classifier, sample_idxes, optimizer=None,
-                 bsize=cmd_args.batch_size):
+                 bsize=cmd_args.batch_size, device=torch.device('cpu')):
     total_loss = []
     total_iters = (len(sample_idxes) + (bsize - 1) * (optimizer is None)) // bsize # noqa
     pbar = tqdm(range(total_iters), unit='batch')
@@ -124,8 +127,13 @@ def loop_dataset(g_list, classifier, sample_idxes, optimizer=None,
         batch_graph = [g_list[idx] for idx in selected_idx]
         targets = [g_list[idx].label for idx in selected_idx]
         all_targets += targets
-        logits, loss, acc = classifier(batch_graph)
+        logits, loss, acc = classifier(batch_graph, device)
         all_scores.append(logits[:, 1].detach())  # for binary classification
+
+        # print("Preds: ")
+        # print(logits)
+        # print("Targets: ")
+        # print(targets)
 
         if optimizer is not None:
             optimizer.zero_grad()
@@ -153,16 +161,28 @@ def loop_dataset(g_list, classifier, sample_idxes, optimizer=None,
 
     return avg_loss
 
+def count_parameters(model):
+    total_param = 0
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            num_param = np.prod(param.size())
+            if param.dim() > 1:
+                print(name, ':', 'x'.join(str(x) for x in list(param.size())), '=', num_param)
+            else:
+                print(name, ':', num_param)
+            total_param += num_param
+    return total_param
 
 if __name__ == '__main__':
     print(cmd_args)
     random.seed(cmd_args.seed)
     np.random.seed(cmd_args.seed)
     torch.manual_seed(cmd_args.seed)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     train_graphs, test_graphs = load_data()
     print('# train: %d, # test: %d' % (len(train_graphs), len(test_graphs)))
-    # print(cmd_args.num_class)
+    print('# num of classes: ', cmd_args.num_class)
 
     if cmd_args.sortpooling_k <= 1:
         num_nodes_list = sorted([
@@ -172,9 +192,9 @@ if __name__ == '__main__':
         cmd_args.sortpooling_k = max(10, cmd_args.sortpooling_k)
         print('k used in SortPooling is: ' + str(cmd_args.sortpooling_k))
 
-    classifier = Classifier()
-    if cmd_args.mode == 'gpu':
-        classifier = classifier
+    classifier = Classifier().to(device)
+    # summary(classifier, (3, 224, 224))
+    print("Number of Model Parameters: ", count_parameters(classifier))
 
     optimizer = optim.Adam(
         classifier.parameters(), lr=cmd_args.learning_rate, amsgrad=True,
@@ -187,7 +207,7 @@ if __name__ == '__main__':
         random.shuffle(train_idxes)
         classifier.train()
         avg_loss = loop_dataset(
-            train_graphs, classifier, train_idxes, optimizer=optimizer)
+            train_graphs, classifier, train_idxes, optimizer=optimizer, device=device)
         if not cmd_args.printAUC:
             avg_loss[2] = 0.0
         print('\033[92maverage training of epoch %d: loss %.5f acc %.5f auc %.5f\033[0m'
@@ -195,7 +215,7 @@ if __name__ == '__main__':
 
         classifier.eval()
         test_loss = loop_dataset(
-            test_graphs, classifier, list(range(len(test_graphs))))
+            test_graphs, classifier, list(range(len(test_graphs))), device=device)
         if not cmd_args.printAUC:
             test_loss[2] = 0.0
         print('\033[93maverage test of epoch %d: loss %.5f acc %.5f auc %.5f\033[0m'

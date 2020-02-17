@@ -15,6 +15,7 @@ import os.path as osp
 
 from torch_geometric.datasets import TUDataset
 from torch_geometric.data import DataLoader
+from torchsummary import summary
 
 sys.path.append(
     '%s/pytorch_structure2vec-master/s2v_lib' % os.path.dirname(
@@ -48,8 +49,6 @@ class Classifier(nn.Module):
     def forward(self, data):
         # node_feat, labels = self.PrepareFeatureLabel(batch_graph)
         labels = data.y
-        # print("Current Node Feature shape is ", data.x.shape)
-        # print(data.x)
 
         embed = self.s2v(data)
         return self.mlp(embed, labels)
@@ -70,13 +69,24 @@ def loop_dataset(dataloader, classifier, optimizer=None, device=torch.device('cp
     all_scores = []
 
     n_samples = 0
+    dataloader_iterator = iter(dataloader)
     for pos in pbar:
-        data = next(iter(dataloader))
+        data = next(dataloader_iterator)
+
+        # Deal with the data with no node attributes
+        if 'x' not in data.keys:
+            data.x = torch.ones(data.num_nodes, 1)
+
         data = data.to(device)
         num_selected = data.batch.max().item() + 1
         targets = data.y
         all_targets += targets.tolist()
         logits, loss, acc = classifier(data)
+
+        # print("Preds: ")
+        # print(logits)
+        # print("Targets: ")
+        # print(targets)
         all_scores.append(logits[:, 1].detach())  # for binary classification
 
         if optimizer is not None:
@@ -104,6 +114,18 @@ def loop_dataset(dataloader, classifier, optimizer=None, device=torch.device('cp
 
     return avg_loss
 
+def count_parameters(model):
+    total_param = 0
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            num_param = np.prod(param.size())
+            if param.dim() > 1:
+                print(name, ':', 'x'.join(str(x) for x in list(param.size())), '=', num_param)
+            else:
+                print(name, ':', num_param)
+            total_param += num_param
+    return total_param
+
 
 if __name__ == '__main__':
     print(cmd_args)
@@ -112,9 +134,11 @@ if __name__ == '__main__':
     torch.manual_seed(cmd_args.seed)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+    # device = torch.device('cpu')
+
     path = osp.join(osp.dirname(osp.realpath(__file__)), '.', 'data', cmd_args.data)
     dataset = TUDataset(path, name=cmd_args.data)
-    # dataset = dataset.shuffle()
+    dataset = dataset.shuffle()
 
     if cmd_args.sortpooling_k <= 1:
         num_nodes_list = sorted([
@@ -126,12 +150,19 @@ if __name__ == '__main__':
 
     # Ten Folds validation
     train_dataset, test_dataset = sep_tg_data(dataset, cmd_args.fold)
+    print('# train: %d, # test: %d' % (len(train_dataset), len(test_dataset)))
+    print('# num of classes: ', dataset.num_classes)
+
     test_loader = DataLoader(test_dataset, batch_size=cmd_args.batch_size)
     train_loader = DataLoader(train_dataset, batch_size=cmd_args.batch_size)
     cmd_args.feat_dim = dataset.num_node_features
     cmd_args.num_class = dataset.num_classes
+    if cmd_args.feat_dim == 0:
+        cmd_args.feat_dim = 1
 
     classifier = Classifier().to(device)
+    print("Number of Model Parameters: ", count_parameters(classifier))
+
     optimizer = optim.Adam(
         classifier.parameters(), lr=cmd_args.learning_rate, amsgrad=True,
         weight_decay=0.0008)

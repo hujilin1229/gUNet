@@ -40,10 +40,10 @@ class GraphUnet(nn.Module):
         self.start_gcn = GCN(in_dim, dim)
         self.bottom_gcn = GCN(dim, dim)
         self.end_gcn = GCN(2*dim, out_dim)
-        self.down_gcns = []
-        self.up_gcns = []
-        self.pools = []
-        self.unpools = []
+        self.down_gcns = nn.ModuleList()
+        self.up_gcns = nn.ModuleList()
+        self.pools = nn.ModuleList()
+        self.unpools = nn.ModuleList()
         self.l_n = len(ks)
         for i in range(self.l_n):
             self.down_gcns.append(GCN(dim, dim))
@@ -81,7 +81,8 @@ class GraphUnpool(nn.Module):
         super(GraphUnpool, self).__init__()
 
     def forward(self, A, X, idx):
-        new_X = torch.zeros([A.shape[0], X.shape[1]])
+
+        new_X = torch.zeros([A.shape[0], X.shape[1]]).to(X.device)
         new_X[idx] = X
         return A, new_X
 

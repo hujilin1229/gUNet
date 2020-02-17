@@ -8,6 +8,7 @@ sys.path.append('%s/pytorch_structure2vec-master/s2v_lib' % os.path.dirname(
 
 from torch_geometric.nn.models import GraphUNet
 from torch_geometric.nn import global_sort_pool
+from torch_geometric.nn import GCNConv
 
 class GUNet(nn.Module):
     def __init__(self, output_dim, num_node_feats, num_edge_feats,
@@ -25,6 +26,9 @@ class GUNet(nn.Module):
 
         self.conv_params = nn.ModuleList()
         # print(num_node_feats)
+        print("num of node features: ")
+        print(num_node_feats)
+        print(latent_dim[0])
         self.conv_params.append(nn.Linear(num_node_feats, latent_dim[0]))
         for i in range(1, len(latent_dim)):
             self.conv_params.append(nn.Linear(latent_dim[i-1], latent_dim[i]))
@@ -45,8 +49,13 @@ class GUNet(nn.Module):
         # ks = [4000, 3000, 2000, 1000]
         ks = [0.9, 0.7, 0.6, 0.5]
         output_channels_gUnet = sum(latent_dim)
-        self.gUnet = GraphUNet(num_node_feats, hidden_channels=48, out_channels=output_channels_gUnet,
+        unet_hidden_dim = 48
+        self.gUnet = GraphUNet(num_node_feats, hidden_channels=unet_hidden_dim, out_channels=output_channels_gUnet,
                                depth=len(ks), pool_ratios=ks)
+
+        # self.end_gcn = GCNConv(2 * unet_hidden_dim, output_channels_gUnet)
+
+
 
     def forward(self, data):
         h = self.sortpooling_embedding_tg(data)
@@ -68,6 +77,10 @@ class GUNet(nn.Module):
         '''G-UNet Layer to process the graph data'''
         # the output feature dimension of gUnet is
         cur_message_layer = self.gUnet(x=node_feat, edge_index=edge_index, batch=batch)
+
+        # X = torch.cat([cur_message_layer, node_feat], 1)
+        # cur_message_layer = self.end_gcn(X, edge_index=edge_index, batch=batch)
+
         ''' sortpooling layer '''
         # the shape of global_sort_pool is (B, k*total_latent_dim)
         batch_sortpooling_graphs = global_sort_pool(cur_message_layer, batch, self.k)

@@ -79,6 +79,7 @@ def load_data():
             for j in range(n):
                 g.add_node(j)
                 row = f.readline().strip().split()
+                # print(f"Row {j}: {row}")
                 tmp = int(row[1]) + 2
                 if tmp == len(row):
                     # no node attributes
@@ -108,6 +109,8 @@ def load_data():
             #assert len(g.edges()) * 2 == n_edges  (some graphs in COLLAB have self-loops, ignored here)
             assert len(g) == n
             g_list.append(S2VGraph(g, l, node_tags, node_features))
+
+    # print("feat_dict is ", feat_dict)
     for g in g_list:
         g.label = label_dict[g.label]
     cmd_args.num_class = len(label_dict)
@@ -117,6 +120,7 @@ def load_data():
     else:
         cmd_args.attr_dim = 0
 
+    # print("node feature dimension is ", node_features)
     print('# classes: %d' % cmd_args.num_class)
     print('# maximum node tag: %d' % cmd_args.feat_dim)
     return sep_data(g_list, cmd_args.fold-1)
