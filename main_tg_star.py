@@ -7,7 +7,7 @@ from tqdm import tqdm
 import torch.nn as nn
 import torch.optim as optim
 import math
-from network_tg import GUNet
+from network_tg_star import GUNet
 from mlp_dropout import MLPClassifier
 from sklearn import metrics
 from util import cmd_args, sep_tg_data
@@ -15,7 +15,6 @@ import os.path as osp
 
 from torch_geometric.datasets import TUDataset
 from torch_geometric.data import DataLoader
-from torchsummary import summary
 
 sys.path.append(
     '%s/pytorch_structure2vec-master/s2v_lib' % os.path.dirname(
@@ -138,7 +137,6 @@ if __name__ == '__main__':
 
     path = osp.join(osp.dirname(osp.realpath(__file__)), '.', 'data', cmd_args.data)
     dataset = TUDataset(path, name=cmd_args.data)
-    # dataset = dataset.shuffle()
 
     if cmd_args.sortpooling_k <= 1:
         num_nodes_list = sorted([
@@ -187,12 +185,12 @@ if __name__ == '__main__':
               % (epoch, test_loss[0], test_loss[1], test_loss[2])) # noqa
         max_acc = max(max_acc, test_loss[1])
 
-    with open('acc_result_tg_%s.txt' % cmd_args.data, 'a+') as f:
+    with open('acc_result_tg_%s_star.txt' % cmd_args.data, 'a+') as f:
         # f.write(str(test_loss[1]) + '\n')
         f.write(str(max_acc) + '\n')
 
     if cmd_args.printAUC:
-        with open('auc_results_tg.txt', 'a+') as f:
+        with open('auc_results_tg_star.txt', 'a+') as f:
             f.write(str(test_loss[2]) + '\n')
 
     # if cmd_args.extract_features:
