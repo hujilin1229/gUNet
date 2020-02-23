@@ -6,8 +6,9 @@ from torch_scatter import scatter_add
 from torch_sparse import coalesce
 from torch_geometric.nn import GraphConv
 from torch_geometric.nn.pool.topk_pool import filter_adj
+import torch_geometric as tg
 import numpy as np
-
+from torch_geometric.utils import degree
 
 class StarPooling(torch.nn.Module):
     r"""The edge pooling operator from the `"Towards Graph Pooling by Edge
@@ -51,7 +52,7 @@ class StarPooling(torch.nn.Module):
 
     unpool_description = namedtuple(
         "UnpoolDescription",
-        ["edge_index", "cluster", "batch", "new_edge_score"])
+        ["edge_index", "cluster", "batch"])
 
     def __init__(self, in_channels, node_score_method=None, dropout=0):
         super(StarPooling, self).__init__()
@@ -108,32 +109,86 @@ class StarPooling(torch.nn.Module):
         # TODO: change linear to consider both node and edge features
         # n = self.lin(x).view(-1)
 
-
-
         n = self.score_func(x, edge_index).view(-1)
-
         n = F.dropout(n, p=self.dropout, training=self.training)
         n = self.compute_node_score(n)
 
-        perm = self.__merge_stars_with_attr__(x, edge_index, n)
-
-        batch = batch[perm]
+        x, edge_index, edge_attr, batch, unpool_info, perm = self.__merge_stars_with_attr_gpu2__(
+            x, edge_index, batch, edge_attr, n)
+        # print(perm)
         edge_index, edge_attr = filter_adj(edge_index, edge_attr, perm, num_nodes=n.size(0))
-        x = x[perm]
 
         return x, edge_index, edge_attr, batch, perm
 
-    def __merge_stars_with_attr__(self, x, edge_index, node_score):
+    def __merge_stars_with_attr_gpu2__(self, x, edge_index, batch, edge_attr, node_score):
+
+        node_argsort = torch.argsort(node_score, descending=True)
+        cluster = torch.empty_like(batch, device=torch.device('cpu'))
+        nodes_remain = torch.ones_like(batch, device=torch.device('cpu'), dtype=torch.bool)
+        # Iterate through all edges, selecting it if it is not incident to another already chosen edge.
+        edge_index_cpu = edge_index.cpu()
+        i = 0
+
+        print("edge index 0", edge_index_cpu[0])
+
+        degrees = degree(edge_index_cpu[0]).long()
+        cum_num_nodes = torch.cat(
+            [degrees.new_zeros(1),
+             degrees.cumsum(dim=0)[:-1]], dim=0).long()
+
+        center_nodes = set()
+
+        print(degrees)
+        print(edge_index_cpu.size())
+        print(cum_num_nodes)
+
+        for node_idx in node_argsort.tolist():
+            if not nodes_remain[node_idx]:
+                continue
+
+            dests = edge_index_cpu[1][cum_num_nodes[node_idx].item():cum_num_nodes[node_idx].item()+degrees[node_idx].item()]
+
+            nodes_remain[dests] = False
+            nodes_remain[node_idx] = False
+
+            # add node_idx to center_nodes
+            center_nodes.add(node_idx)
+
+            cluster[node_idx] = i
+            cluster[dests] = i
+            i += 1
+
+        cluster = cluster.to(x.device)
+        new_x = scatter_add(x, cluster, dim=0, dim_size=i)
+        N = new_x.size(0)
+
+        print(cluster)
+        new_edge_index, new_edge_attr = coalesce(cluster[edge_index], edge_attr, N, N)
+
+        new_batch = x.new_empty(new_x.size(0), dtype=torch.long)
+        new_batch = new_batch.scatter_(0, cluster, batch)
+
+        unpool_info = self.unpool_description(edge_index=edge_index,
+                                              cluster=cluster, batch=batch)
+
+        perm = sorted(center_nodes)
+        perm = torch.from_numpy(np.array(perm)).view(-1).to(x.device)
+
+        return new_x, new_edge_index, new_edge_attr, new_batch, unpool_info, perm
+
+    def __merge_stars_with_attr_gpu__(self, x, edge_index, edge_attr, batch, node_score):
 
         device = x.device
 
         nodes_remaining = set(range(x.size(0)))
         node_argsort = torch.argsort(node_score, descending=True)
 
-        # Iterate through all edges, selecting it if it is not incident to
-        # another already chosen edge.
+        cluster = torch.empty_like(batch, device=torch.device('cpu'))
+
+        # Iterate through all edges, selecting it if it is not incident to another already chosen edge.
         edge_index_cpu = edge_index.cpu()
         center_nodes = set()
+        i = 0
 
         for node_idx in node_argsort.tolist():
             if node_idx not in nodes_remaining:
@@ -143,109 +198,38 @@ class StarPooling(torch.nn.Module):
             dests = set(edge_index_cpu[1][dest_bool].numpy())
             # remove the previous combined nodes
             dests.difference_update(center_nodes)
-
-            # assign node_id to target nodes
-            edge_index_cpu[0][dest_bool] = node_idx
             nodes_remaining.difference_update(dests)
+            nodes_remaining.remove(node_idx)
 
             # add node_idx to center_nodes
             center_nodes.add(node_idx)
 
-            # assign the source ids within dests to node_idx
-            source_idx = edge_index_cpu[0].numpy()
-            dests = np.array(list(dests) + [node_idx])
+            cluster[node_idx] = i
+            cluster[list(dests)] = i
+            i += 1
 
-            source_mask = np.isin(source_idx, dests)
-            edge_index_cpu[0][source_mask] = node_idx
+        # The remaining nodes are simply kept.
+        for node_idx in nodes_remaining:
+            cluster[node_idx] = i
+            i += 1
 
-            target_idx = edge_index_cpu[1].numpy()
-            target_mask = np.isin(target_idx, dests)
-            edge_index_cpu[1][target_mask] = node_idx
+        cluster = cluster.to(x.device)
 
-            # We compute the new features as an addition of the old ones.
-            dests = torch.from_numpy(dests)
-            combine_features = torch.sum(x[dests], dim=0, keepdim=True)
+        new_x = scatter_add(x, cluster, dim=0, dim_size=i)
+        N = new_x.size(0)
 
-            x[node_idx] = combine_features
+        new_edge_index, new_edge_attr = coalesce(cluster[edge_index], edge_attr, N, N)
 
-        perm = sorted(nodes_remaining)
+        new_batch = x.new_empty(new_x.size(0), dtype=torch.long)
+        new_batch = new_batch.scatter_(0, cluster, batch)
+
+        unpool_info = self.unpool_description(edge_index=edge_index,
+                                              cluster=cluster, batch=batch)
+
+        perm = sorted(center_nodes)
         perm = torch.from_numpy(np.array(perm)).view(-1).to(device)
 
-        return perm
-
-    def __merge_stars__(self, x, edge_index, batch, node_score):
-        nodes_remaining = set(range(x.size(0)))
-        node_argsort = torch.argsort(node_score, descending=True)
-
-        # Iterate through all edges, selecting it if it is not incident to
-        # another already chosen edge.
-        edge_index_cpu = edge_index.cpu()
-        center_nodes = set()
-
-        for node_idx in node_argsort.tolist():
-            if node_idx not in nodes_remaining:
-                continue
-            dest_bool = edge_index_cpu[0] == node_idx
-            # get the connected nodes
-            dests = set(edge_index_cpu[1][dest_bool].numpy())
-            # remove the previous combined nodes
-            dests.difference_update(center_nodes)
-
-            # assign node_id to target nodes
-            edge_index_cpu[0][dest_bool] = node_idx
-            nodes_remaining.difference_update(dests)
-
-            # add node_idx to center_nodes
-            center_nodes.add(node_idx)
-
-            # assign the source ids within dests to node_idx
-            source_idx = edge_index_cpu[0].numpy()
-            dests = np.array(list(dests) + [node_idx])
-
-            source_mask = np.isin(source_idx, dests)
-            edge_index_cpu[0][source_mask] = node_idx
-
-            target_idx = edge_index_cpu[1].numpy()
-            target_mask = np.isin(target_idx, dests)
-            edge_index_cpu[1][target_mask] = node_idx
-
-            # We compute the new features as an addition of the old ones.
-            dests = torch.from_numpy(dests)
-            combine_features = torch.sum(x[dests], dim=0, keepdim=True)
-
-            x[node_idx] = combine_features
-
-        # remove self-loop
-        self_loop_bool = edge_index_cpu[0] == edge_index_cpu[1]
-        if torch.sum(self_loop_bool) < edge_index_cpu.size(1):
-            # print(edge_index_cpu)
-            edge_index_cpu = edge_index_cpu[:, ~self_loop_bool]
-
-        # remove duplicate edges
-        num_remain_nodes = len(nodes_remaining)
-        # print("Num Remaining is ", num_remain_nodes)
-        nodes_remaining_sort = sorted(nodes_remaining)
-
-
-        new_node_ids = np.arange(len(nodes_remaining_sort))
-        new_old_node_dict = dict(zip(nodes_remaining_sort, new_node_ids))
-        row, col = edge_index_cpu
-        # print(new_old_node_dict)
-        # print("Num edges is ", len(row))
-
-        row = np.vectorize(new_old_node_dict.get)(row.numpy())
-        col = np.vectorize(new_old_node_dict.get)(col.numpy())
-        row = torch.from_numpy(row)
-        col = torch.from_numpy(col)
-
-        _, perm = torch.unique(row * num_remain_nodes + col, sorted=True, return_inverse=True)
-        new_edge_index = torch.stack([row[perm], col[perm]], dim=0).to(x.device)
-
-        # refine node features
-        new_x = x[nodes_remaining_sort]
-        new_batch = batch[nodes_remaining_sort]
-
-        return new_x, new_edge_index, new_batch
+        return new_x, new_edge_index, new_edge_attr, new_batch, unpool_info, perm
 
     def unpool(self, x, unpool_info):
         r"""Unpools a previous edge pooling step.
@@ -268,6 +252,77 @@ class StarPooling(torch.nn.Module):
         new_x = x / unpool_info.new_edge_score.view(-1, 1)
         new_x = new_x[unpool_info.cluster]
         return new_x, unpool_info.edge_index, unpool_info.batch
+
+
+    def __merge_star_nodes__(self, x, edge_index, batch, node_score):
+        """
+        Copy from Edge Contraction Pooling
+
+        :param x: node feature
+        :param edge_index: edge index
+        :param batch: batch index
+        :param edge_score: edge score tensor
+        :return:
+        """
+
+        nodes_remaining = set(range(x.size(0)))
+
+        cluster = torch.empty_like(batch, device=torch.device('cpu'))
+        # edge_argsort = torch.argsort(edge_score, descending=True)
+        node_argsort = torch.argsort(node_score, descending=True)
+        edge_index_cpu = edge_index.cpu()
+
+        deg = tg.utils.degree(edge_index_cpu[0], x.size(0))
+
+
+
+        # Iterate through all edges, selecting it if it is not incident to
+        # another already chosen edge.
+        i = 0
+        new_edge_indices = []
+        edge_index_cpu = edge_index.cpu()
+
+        for node_idx in node_argsort.tolist():
+            # check if the node is still in the nodes_remaining
+            if node_idx not in nodes_remaining:
+                continue
+
+            dest_bool = edge_index_cpu[0] == node_idx
+            dests = set(edge_index_cpu[1][dest_bool].numpy())
+            dests.difference_update(nodes_remaining)
+
+            if len(dests) == 0:
+                continue
+
+            cluster[list(dests)] = i
+            nodes_remaining.remove(node_idx)
+            nodes_remaining.difference_update(dests)
+
+            i += 1
+
+        cluster = cluster.to(x.device)
+
+        # We compute the new features as an addition of the old ones.
+        new_x = scatter_add(x, cluster, dim=0, dim_size=i)
+        new_edge_score = edge_score[new_edge_indices]
+        if len(nodes_remaining) > 0:
+            remaining_score = x.new_ones(
+                (new_x.size(0) - len(new_edge_indices), ))
+            new_edge_score = torch.cat([new_edge_score, remaining_score])
+        new_x = new_x * new_edge_score.view(-1, 1)
+
+        N = new_x.size(0)
+        new_edge_index, _ = coalesce(cluster[edge_index], None, N, N)
+
+        new_batch = x.new_empty(new_x.size(0), dtype=torch.long)
+        new_batch = new_batch.scatter_(0, cluster, batch)
+
+        unpool_info = self.unpool_description(edge_index=edge_index,
+                                              cluster=cluster, batch=batch,
+                                              new_edge_score=new_edge_score)
+
+        return new_x, new_edge_index, new_batch, unpool_info
+
 
     def __merge_edges__(self, x, edge_index, batch, edge_score):
         """

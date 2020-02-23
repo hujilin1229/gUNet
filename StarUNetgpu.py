@@ -4,7 +4,7 @@ from torch_sparse import spspmm
 from torch_geometric.nn import GCNConv
 from torch_geometric.utils import (add_self_loops, sort_edge_index,
                                    remove_self_loops)
-from star_pool import StarPooling
+from star_pool_gpu import StarPooling
 
 class GraphUNet(torch.nn.Module):
     r"""The Graph U-Net model from the `"Graph U-Nets"
@@ -80,6 +80,7 @@ class GraphUNet(torch.nn.Module):
 
         for i in range(1, self.depth + 1):
             edge_index, edge_weight = self.augment_adj(edge_index, edge_weight, x.size(0))
+            print("Pooling ", i)
             x, edge_index, edge_weight, batch, perm = self.pools[i - 1](
                 x, edge_index, edge_weight, batch)
 
